@@ -1,11 +1,16 @@
 
 from oauth import oauth
 import urllib2
+from datetime import datetime
 from urllib import urlencode
 try:
     import json
 except ImportError:
     import simplejson as json
+
+
+class NotFound(Exception):
+    pass
 
 class NetflixObject(object):
     def get(self, netflix=None, key=None, secret=None):
@@ -19,10 +24,18 @@ class Printable(object):
 
     @property
     def _imp(self):
-        return getattr(self, self.important)
+        try:
+            return getattr(self, self.important)
+        except TypeError:
+            return getattr(self, self.important[0])
 
     def __repr__(self):
-        return "<%s %r>" % (type(self).__name__, self._imp)
+        if isinstance(self.important, (tuple, list)):
+            data =  ', '.join("%r" % getattr(self, k) for k in self.important)
+        else:
+            data = "%r" % getattr(self, self.important)
+
+        return "<%s %s>" % (type(self).__name__, data)
 
     def __getattr__(self, name):
         return getattr(self._imp, name)
@@ -47,7 +60,7 @@ class NetflixCategory(NetflixObject, Printable):
         self.label, self.scheme, self.term = label, scheme, term
 
 class CatalogTitle(NetflixObject, Printable):
-    important = 'title'
+    important = ('title', 'id')
     def __init__(self, d):
         categories = d.pop('category')
         links = d.pop('link')
@@ -59,6 +72,20 @@ class CatalogTitle(NetflixObject, Printable):
 
         self.categories = [NetflixCategory(**di) for di in categories]
         self.links = dict((di['title'], NetflixLink(**di)) for di in links)
+
+class NetflixAvailability(NetflixObject, Printable):
+    important = ('category', 'available_from')
+    def __init__(self, d):
+        self.category = NetflixCategory(**d['category'])
+        try:
+            self.available_from = datetime.fromtimestamp(float(d['available_from']))
+            self.available = False
+        except KeyError:
+            self.available_from = None
+        try:
+            self.available_until = datetime.fromtimestamp(float(d['available_until']))
+        except KeyError:
+            self.available_until = None
 
 class Netflix(object):
     protocol = "http://"
@@ -74,9 +101,17 @@ class Netflix(object):
     def object_hook(self, d):
         d = dict((str(k), v) for k, v in d.iteritems())
         if 'catalog_titles' in d:
-            return [CatalogTitle(di) for di in d['catalog_titles']['catalog_title']]
+            try:
+                return [CatalogTitle(di) for di in d['catalog_titles']['catalog_title']]
+            except KeyError:
+                return d['catalog_titles']
         elif 'synopsis' in d and len(d) == 1:
             return d['synopsis']
+        elif 'delivery_formats' in d and len(d) == 1:
+            availabilities = d['delivery_formats']['availability']
+            if not isinstance(availabilities, list):
+                availabilities = [availabilities]
+            return [NetflixAvailability(o) for o in availabilities]
         else:
             return d
 
@@ -105,8 +140,10 @@ class Netflix(object):
         oa_req.sign_request(oauth.OAuthSignatureMethod_HMAC_SHA1(),
                             self.consumer,
                             token)
-
-        req = urllib2.urlopen(oa_req.to_url())
+        try:
+            req = urllib2.urlopen(oa_req.to_url())
+        except urllib2.HTTPError:
+            raise NotFound(url)
         return json.load(req, object_hook=self.object_hook)
 
 if __name__=="__main__":
@@ -121,6 +158,17 @@ if __name__=="__main__":
         p(n.request(*a, **kw))
 
     n = Netflix(key='dydmw8gpezjh5kgfqw7afxnw', secret='kAP65KD7Zs')
+    import sys
+    try:
+        r(sys.argv[1], term=sys.argv[2])
+    except IndexError:
+        try:
+            r(sys.argv[1])
+        except IndexError:
+            pass
+
+
+#('/catalog/titles/discs/70115311/format_availability')
     #print n.get_request_token()
     #n.request('http://api.netflix.com/catalog/titles/movies/60021896')
     #r = n.request('http://api.netflix.com/catalog/titles', term="The Sopranos")['catalog_titles']['catalog_title']
@@ -135,9 +183,9 @@ if __name__=="__main__":
     #p(n.request('http://api.netflix.com/catalog/titles/series/60030356/seasons/70058397/synopsis'))
     #r = n.request(u'/catalog/titles/series/60030356/seasons')
     #p(n.request('http://api.netflix.com/catalog/titles', term="Denial, Anger, Acceptance"))
-    for o in (n.request('/catalog/titles', term="The Sopranos: Season 2")[0].links['discs'].get(n)):
-        p(o.box_art)
-        print
+#     for o in (n.request('/catalog/titles', term="The Sopranos: Season 2")[0].links['discs'].get(n)):
+#         p(o.box_art)
+#         print
 
    # p(n.request('/catalog/titles', term="The Sopranos"))
     #p(r[0])
@@ -145,7 +193,7 @@ if __name__=="__main__":
     #pp.pprint(n.request(u'http://api.netflix.com/catalog/titles/series/60030356/seasons'))
     #p(n.request(u'http://api.netflix.com/catalog/titles/series/60030356/seasons/60030411'))
     #p(n.request(u'http://api.netflix.com/catalog/titles/series/60030356/seasons/60030411/discs'))
-    #p(n.request(u'http://api.netflix.com/catalog/titles/discs/60021344/synopsis'))
+    #p(n.request(u'http://api.netflix.com/synopsis'))
     #p(n.request(u'http://api.netflix.com/catalog/titles//series/60030356/synopsis'))
     #r = n.request(u'http://api.netflix.com/catalog/titles/series/60030356/seasons/70058397/discs')
     #pp.pprint(r)
