@@ -9,6 +9,9 @@ try:
 except ImportError:
     import simplejson as json
 
+import logging
+
+logging.basicConfig(level=logging.DEBUG,)
 
 class NotFound(Exception):
     pass
