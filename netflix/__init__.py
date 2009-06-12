@@ -8,14 +8,33 @@ except ImportError:
     import simplejson as json
 
 class NetflixObject(object):
-    pass
+    def get(self, netflix=None, key=None, secret=None):
+        if not netflix:
+            netflix = Netflix(key=key, secret=secret)
+        return netflix.request(self)
 
 class Printable(object):
     def __str__(self):
+        return self._imp
+
+    @property
+    def _imp(self):
         return getattr(self, self.important)
 
     def __repr__(self):
-        return "<%s %r>" % (type(self).__name__, getattr(self, self.important))
+        return "<%s %r>" % (type(self).__name__, self._imp)
+
+    def __getattr__(self, name):
+        return getattr(self._imp, name)
+
+    def __getitem__(self, key):
+        return self._imp.__getitem__(key)
+
+    def __add__(self, other):
+        return self._imp + other
+
+    def __radd__(self, other):
+        return self + other
 
 class NetflixLink(NetflixObject, Printable):
     important = 'href'
@@ -56,6 +75,8 @@ class Netflix(object):
         d = dict((str(k), v) for k, v in d.iteritems())
         if 'catalog_titles' in d:
             return [CatalogTitle(di) for di in d['catalog_titles']['catalog_title']]
+        elif 'synopsis' in d and len(d) == 1:
+            return d['synopsis']
         else:
             return d
 
@@ -95,6 +116,11 @@ if __name__=="__main__":
         pp.pprint(*a, **k)
 
     n = Netflix(key='dydmw8gpezjh5kgfqw7afxnw', secret='kAP65KD7Zs')
+
+    def r(*a, **kw):
+        p(n.request(*a, **kw))
+
+    n = Netflix(key='dydmw8gpezjh5kgfqw7afxnw', secret='kAP65KD7Zs')
     #print n.get_request_token()
     #n.request('http://api.netflix.com/catalog/titles/movies/60021896')
     #r = n.request('http://api.netflix.com/catalog/titles', term="The Sopranos")['catalog_titles']['catalog_title']
@@ -107,8 +133,14 @@ if __name__=="__main__":
     #p(f.categories)
     #p(n.request('http://api.netflix.com/catalog/titles', term="The Sopranos"))
     #p(n.request('http://api.netflix.com/catalog/titles/series/60030356/seasons/70058397/synopsis'))
-    r = n.request(u'/catalog/titles/series/60030356/seasons')
-    p(r[0])
+    #r = n.request(u'/catalog/titles/series/60030356/seasons')
+    #p(n.request('http://api.netflix.com/catalog/titles', term="Denial, Anger, Acceptance"))
+    for o in (n.request('/catalog/titles', term="The Sopranos: Season 2")[0].links['discs'].get(n)):
+        p(o.box_art)
+        print
+
+   # p(n.request('/catalog/titles', term="The Sopranos"))
+    #p(r[0])
     #p(q)
     #pp.pprint(n.request(u'http://api.netflix.com/catalog/titles/series/60030356/seasons'))
     #p(n.request(u'http://api.netflix.com/catalog/titles/series/60030356/seasons/60030411'))
