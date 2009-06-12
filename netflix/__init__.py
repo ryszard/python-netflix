@@ -1,6 +1,7 @@
 
 from oauth import oauth
 import urllib2
+import time
 from datetime import datetime
 from urllib import urlencode
 try:
@@ -142,8 +143,13 @@ class Netflix(object):
                             token)
         try:
             req = urllib2.urlopen(oa_req.to_url())
-        except urllib2.HTTPError:
-            raise NotFound(url)
+        except urllib2.HTTPError, e:
+            logging.debug("We got an http error: %s" % e)
+            try:
+                time.sleep(1)
+                req = urllib2.urlopen(oa_req.to_url())
+            except urllib2.HTTPError, e:
+                raise NotFound(url, e)
         return json.load(req, object_hook=self.object_hook)
 
 if __name__=="__main__":
