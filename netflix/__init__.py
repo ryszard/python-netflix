@@ -109,6 +109,8 @@ class Netflix(object):
                 return [CatalogTitle(di) for di in d['catalog_titles']['catalog_title']]
             except KeyError:
                 return d['catalog_titles']
+        elif 'catalog_title' in d and len(d) ==1:
+                return CatalogTitle(d['catalog_title'])
         elif 'synopsis' in d and len(d) == 1:
             return d['synopsis']
         elif 'delivery_formats' in d and len(d) == 1:
@@ -168,11 +170,18 @@ if __name__=="__main__":
 
     n = Netflix(key='dydmw8gpezjh5kgfqw7afxnw', secret='kAP65KD7Zs')
     import sys
+#    p(n.request('/catalog/titles', term="Full Metal Jacket"))
     try:
-        r(sys.argv[1], term=sys.argv[2])
+        url = sys.argv[1]
+        term = ' '.join(sys.argv[2:])
+        if term.isspace() or term == "":
+            raise IndexError
+        print url, repr(term)
+        r(url, term=term)
     except IndexError:
         try:
-            r(sys.argv[1])
+            print url
+            r(url)
         except IndexError:
             pass
 
@@ -196,7 +205,7 @@ if __name__=="__main__":
 #         p(o.box_art)
 #         print
 
-   # p(n.request('/catalog/titles', term="The Sopranos"))
+
     #p(r[0])
     #p(q)
     #pp.pprint(n.request(u'http://api.netflix.com/catalog/titles/series/60030356/seasons'))
