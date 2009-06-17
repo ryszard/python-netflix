@@ -107,10 +107,13 @@ class Netflix(object):
         if 'catalog_titles' in d:
             try:
                 return [CatalogTitle(di) for di in d['catalog_titles']['catalog_title']]
-            except KeyError:
+            except (KeyError, TypeError):
                 return d['catalog_titles']
         elif 'catalog_title' in d and len(d) ==1:
+            try:
                 return CatalogTitle(d['catalog_title'])
+            except TypeError:
+                return [CatalogTitle(i) for i in d['catalog_title']]
         elif 'synopsis' in d and len(d) == 1:
             return d['synopsis']
         elif 'delivery_formats' in d and len(d) == 1:
