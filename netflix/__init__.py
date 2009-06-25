@@ -98,9 +98,11 @@ class Netflix(object):
     request_token_url = 'http://api.netflix.com/oauth/request_token'
     access_token_url  = 'http://api.netflix.com/oauth/access_token'
     authorization_url = 'https://api-user.netflix.com/oauth/login'
+    signature_method = oauth.OAuthSignatureMethod_HMAC_SHA1()
 
-    def __init__(self, key, secret):
+    def __init__(self, key, secret, application_name=None):
         self.consumer = oauth.OAuthConsumer(key, secret)
+        self.application_name = application_name
 
     def object_hook(self, d):
         d = dict((str(k), v) for k, v in d.iteritems())
@@ -125,28 +127,64 @@ class Netflix(object):
             return d
 
     def get_request_token(self):
-        oa_req = oauth.OAuthRequest.from_consumer_and_token(self.consumer,
-                                                            http_url=self.request_token_url)
-        oa_req.sign_request(oauth.OAuthSignatureMethod_HMAC_SHA1(),
+        oa_req = oauth.OAuthRequest.from_consumer_and_token(
+            self.consumer,
+            http_url=self.request_token_url)
+        oa_req.sign_request(self.signature_method,
                                   self.consumer,
                                   None)
-        req = urllib2.Request(self.request_token_url, headers = oa_req.to_header())
+        req = urllib2.Request(
+            self.request_token_url,
+            headers = oa_req.to_header())
         request_token = oauth.OAuthToken.from_string(urllib2.urlopen(req).read())
         return request_token
 
-    def request(self, url, **args):
-        """`url` may be realtive with regard to Netflix.
+    def get_authorization_url(self, callback=None):
+        """Return the authorization url and token."""
+        token = self.get_request_token()
+        parameters = dict(application_name=self.application_name)
+        if callback:
+            parameters['oauth_callback'] = callback
+        oauth_request = oauth.OAuthRequest.from_consumer_and_token(
+            self.consumer,
+            token=token,
+            parameters=parameters,
+            http_url=self.authorization_url,
+        )
+        oauth_request.sign_request(self.signature_method, self.consumer, token)
+        return oauth_request.to_url(), token
+
+    def get_access_token(self, token):
+        oa_req = oauth.OAuthRequest.from_consumer_and_token(
+            self.consumer,
+            token=token,
+            parameters={'application_name': self.application_name} if self.application_name else None,
+            http_url=self.access_token_url
+        )
+
+        oa_req.sign_request(
+            self.signature_method,
+            self.consumer,
+            token
+        )
+        try:
+            req = urllib2.urlopen(oa_req.to_url())
+        except urllib2.HTTPError,e:
+            raise
+        return oauth.OAuthToken.from_string(req.read())
+
+    def request(self, url, token=None, **args):
+        """`url` may be relative with regard to Netflix.
 
         """
         if not url.startswith('http://'):
             url = self.protocol + self.host + url
-        token = None
         args['output'] = 'json'
         oa_req = oauth.OAuthRequest.from_consumer_and_token(self.consumer,
                                                             http_url=url,
                                                             parameters=args,
                                                             token=token)
-        oa_req.sign_request(oauth.OAuthSignatureMethod_HMAC_SHA1(),
+        oa_req.sign_request(self.signature_method,
                             self.consumer,
                             token)
         try:
