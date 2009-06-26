@@ -18,10 +18,10 @@ class NotFound(Exception):
     pass
 
 class NetflixObject(object):
-    def get(self, netflix=None, key=None, secret=None):
+    def get(self, netflix=None, token=None, key=None, secret=None):
         if not netflix:
             netflix = Netflix(key=key, secret=secret)
-        return netflix.request(self)
+        return netflix.request(self, token=token)
 
 class Printable(object):
     def __str__(self):
@@ -29,10 +29,11 @@ class Printable(object):
 
     @property
     def _imp(self):
+        important = getattr(self, 'important')
         try:
-            return getattr(self, self.important)
+            return getattr(self, important)
         except TypeError:
-            return getattr(self, self.important[0])
+            return getattr(self, important[0])
 
     def __repr__(self):
         if isinstance(self.important, (tuple, list)):
@@ -64,19 +65,36 @@ class NetflixCategory(NetflixObject, Printable):
     def __init__(self, label=None, scheme=None, term=None):
         self.label, self.scheme, self.term = label, scheme, term
 
-class CatalogTitle(NetflixObject, Printable):
-    important = ('title', 'id')
+class FancyObject(NetflixObject):
     def __init__(self, d):
-        categories = d.pop('category')
-        links = d.pop('link')
-        title = d.pop('title')
-        self.title = title['regular']
-        self.title_short = title['short']
+        self.links = dict((di['title'], NetflixLink(**di)) for di in d.pop('link'))
         for k in d:
             setattr(self, k, d[k])
 
-        self.categories = [NetflixCategory(**di) for di in categories]
-        self.links = dict((di['title'], NetflixLink(**di)) for di in links)
+
+class CatalogTitle(FancyObject, Printable):
+    important = ('title', 'id')
+    def __init__(self, d):
+        title = d.pop('title')
+        self.title = title['regular']
+        self.title_short = title['short']
+        self.categories = [NetflixCategory(**di) for di in d.pop('category')]
+        super(CatalogTitle, self).__init__(d)
+
+class NetflixUser(FancyObject, Printable):
+    important = ('last_name', 'first_name', 'user_id')
+
+    def __init__(self, d):
+        preferred_formats = d.pop('preferred_formats')
+        if not isinstance(preferred_formats, (list, tuple)):
+            preferred_formats = [preferred_formats]
+        self.preferred_formats = [NetflixCategory(**dd['category']) for dd in preferred_formats]
+        super(NetflixUser, self).__init__(d)
+
+class RentalHistory(FancyObject):
+    def __init__(self, d):
+        self.items = [CatalogTitle(dd) for dd in d.pop('rental_history_item')]
+        super(RentalHistory, self).__init__(d)
 
 class NetflixAvailability(NetflixObject, Printable):
     important = ('category', 'available_from')
@@ -107,23 +125,31 @@ class Netflix(object):
 
     def object_hook(self, d):
         d = dict((str(k), v) for k, v in d.iteritems())
+
+        def isa(label):
+            return label in d and len(d) == 1
+
         if 'catalog_titles' in d:
             try:
                 return [CatalogTitle(di) for di in d['catalog_titles']['catalog_title']]
             except (KeyError, TypeError):
                 return d['catalog_titles']
-        elif 'catalog_title' in d and len(d) ==1:
+        elif isa('catalog_title'):
             try:
                 return CatalogTitle(d['catalog_title'])
             except TypeError:
                 return [CatalogTitle(i) for i in d['catalog_title']]
-        elif 'synopsis' in d and len(d) == 1:
+        elif isa('synopsis'):
             return d['synopsis']
-        elif 'delivery_formats' in d and len(d) == 1:
+        elif isa('delivery_formats'):
             availabilities = d['delivery_formats']['availability']
             if not isinstance(availabilities, list):
                 availabilities = [availabilities]
             return [NetflixAvailability(o) for o in availabilities]
+        elif isa('user'):
+            return NetflixUser(d['user'])
+        elif isa('rental_history'):
+            return RentalHistory(d['rental_history'])
         else:
             return d
 
