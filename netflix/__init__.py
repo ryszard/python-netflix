@@ -1,14 +1,15 @@
 
 from oauth import oauth
+from oauth.oauth import OAuthRequest, OAuthToken
 import urllib2
+import cgi
 import time
 from datetime import datetime
-from urllib import urlencode
+from urllib import urlencode, quote
 try:
     import json
 except ImportError:
     import simplejson as json
-
 import logging
 
 logging.basicConfig(level=logging.DEBUG,)
@@ -127,7 +128,7 @@ class Netflix(object):
             return d
 
     def get_request_token(self):
-        oa_req = oauth.OAuthRequest.from_consumer_and_token(
+        oa_req = OAuthRequest.from_consumer_and_token(
             self.consumer,
             http_url=self.request_token_url)
         oa_req.sign_request(self.signature_method,
@@ -136,7 +137,7 @@ class Netflix(object):
         req = urllib2.Request(
             self.request_token_url,
             headers = oa_req.to_header())
-        request_token = oauth.OAuthToken.from_string(urllib2.urlopen(req).read())
+        request_token = OAuthToken.from_string(urllib2.urlopen(req).read())
         return request_token
 
     def get_authorization_url(self, callback=None):
@@ -145,7 +146,7 @@ class Netflix(object):
         parameters = dict(application_name=self.application_name)
         if callback:
             parameters['oauth_callback'] = callback
-        oauth_request = oauth.OAuthRequest.from_consumer_and_token(
+        oauth_request = OAuthRequest.from_consumer_and_token(
             self.consumer,
             token=token,
             parameters=parameters,
@@ -154,8 +155,10 @@ class Netflix(object):
         oauth_request.sign_request(self.signature_method, self.consumer, token)
         return oauth_request.to_url(), token
 
-    def get_access_token(self, token):
-        oa_req = oauth.OAuthRequest.from_consumer_and_token(
+    def authorize(self, token):
+        """Authorize a user with netflix and return a user id and an
+        access token."""
+        oa_req = OAuthRequest.from_consumer_and_token(
             self.consumer,
             token=token,
             parameters={'application_name': self.application_name} if self.application_name else None,
@@ -170,8 +173,14 @@ class Netflix(object):
         try:
             req = urllib2.urlopen(oa_req.to_url())
         except urllib2.HTTPError,e:
+            # todo: someting better here
             raise
-        return oauth.OAuthToken.from_string(req.read())
+        res = req.read()
+        logging.debug(res)
+        id = cgi.parse_qs(res)['user_id'][0]
+
+        return id, OAuthToken.from_string(res)
+
 
     def request(self, url, token=None, **args):
         """`url` may be relative with regard to Netflix.
@@ -180,7 +189,7 @@ class Netflix(object):
         if not url.startswith('http://'):
             url = self.protocol + self.host + url
         args['output'] = 'json'
-        oa_req = oauth.OAuthRequest.from_consumer_and_token(self.consumer,
+        oa_req = OAuthRequest.from_consumer_and_token(self.consumer,
                                                             http_url=url,
                                                             parameters=args,
                                                             token=token)
