@@ -75,6 +75,7 @@ class FancyObject(NetflixObject):
 class CatalogTitle(FancyObject, Printable):
     important = ('title', 'id')
     def __init__(self, d):
+        assert isinstance(d, dict), (type(d), d)
         title = d.pop('title')
         self.title = title['regular']
         self.title_short = title['short']
@@ -131,7 +132,10 @@ class Netflix(object):
 
         if 'catalog_titles' in d:
             try:
-                return [CatalogTitle(di) for di in d['catalog_titles']['catalog_title']]
+                catalog_titles = d['catalog_titles']['catalog_title']
+                if not isinstance(catalog_titles, list):
+                    catalog_titles = [catalog_titles]
+                return [CatalogTitle(di) for di in catalog_titles]
             except (KeyError, TypeError):
                 return d['catalog_titles']
         elif isa('catalog_title'):
