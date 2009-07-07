@@ -62,8 +62,8 @@ class NetflixLink(NetflixObject, Printable):
 
 class NetflixCategory(NetflixObject, Printable):
     important = 'term'
-    def __init__(self, label=None, scheme=None, term=None):
-        self.label, self.scheme, self.term = label, scheme, term
+    def __init__(self, label=None, scheme=None, term=None, content=None):
+        self.label, self.scheme, self.term, self.content = label, scheme, term, content
 
 class FancyObject(NetflixObject):
     def __init__(self, d):
@@ -79,7 +79,8 @@ class CatalogTitle(FancyObject, Printable):
         title = d.pop('title')
         self.title = title['regular']
         self.title_short = title['short']
-        self.categories = [NetflixCategory(**di) for di in d.pop('category')]
+        categories = d.pop('category')
+        self.categories = [NetflixCategory(**di) for di in categories]
         super(CatalogTitle, self).__init__(d)
 
 class NetflixUser(FancyObject, Printable):
@@ -92,10 +93,30 @@ class NetflixUser(FancyObject, Printable):
         self.preferred_formats = [NetflixCategory(**dd['category']) for dd in preferred_formats]
         super(NetflixUser, self).__init__(d)
 
-class RentalHistory(FancyObject):
+class NetflixCollection(FancyObject):
+    item_type = CatalogTitle
     def __init__(self, d):
-        self.items = [CatalogTitle(dd) for dd in d.pop('rental_history_item')]
-        super(RentalHistory, self).__init__(d)
+        try:
+            items = d.pop(self._items_name)
+        except AttributeError:
+            raise NotImplemened("NetflixCollection subclasses must set _items_name")
+        if not isinstance(items, (list, tuple)):
+            items = [items]
+        self.items = [self.item_type(dd) for dd in items]
+        super(NetflixCollection, self).__init__(d)
+        for lab in 'number_of_results', 'results_per_page', 'start_index':
+            setattr(self, lab, int(getattr(self, lab)))
+
+    def __iter__(self):
+        for item in self.items:
+            yield item
+
+
+class RentalHistory(NetflixCollection):
+    _items_name = "rental_history_item"
+
+class NetflixQueue(NetflixCollection):
+    _items_name = 'queue_item'
 
 class NetflixAvailability(NetflixObject, Printable):
     important = ('category', 'available_from')
@@ -154,6 +175,8 @@ class Netflix(object):
             return NetflixUser(d['user'])
         elif isa('rental_history'):
             return RentalHistory(d['rental_history'])
+        elif isa('queue'):
+            return NetflixQueue(d['queue'])
         else:
             return d
 
@@ -234,5 +257,5 @@ class Netflix(object):
                 time.sleep(1)
                 req = urllib2.urlopen(oa_req.to_url())
             except urllib2.HTTPError, e:
-                raise NotFound(url, e)
+                raise NotFound(url, e.read())
         return json.load(req, object_hook=self.object_hook)
