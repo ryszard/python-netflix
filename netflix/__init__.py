@@ -23,6 +23,9 @@ class NotFound(NetflixError):
 class AuthError(NetflixError):
     pass
 
+class MissingAccessTokenError(NetflixError):
+    pass
+
 class NetflixObject(object):
     def get(self, netflix=None, token=None, key=None, secret=None):
         if not netflix:
@@ -81,7 +84,7 @@ class FancyObject(NetflixObject):
 class CatalogTitle(FancyObject, Printable):
     important = ('title', 'id')
     def __init__(self, d):
-        assert isinstance(d, dict), (type(d), d)
+#        assert isinstance(d, dict), (type(d), d)
         title = d.pop('title')
         self.title = title['regular']
         self.title_short = title['short']
@@ -106,9 +109,12 @@ class NetflixCollection(FancyObject):
             items = d.pop(self._items_name)
         except AttributeError:
             raise NotImplemened("NetflixCollection subclasses must set _items_name")
-        if not isinstance(items, (list, tuple)):
-            items = [items]
-        self.items = [self.item_type(dd) for dd in items]
+        except KeyError:
+            self.items = []
+        else:
+            if not isinstance(items, (list, tuple)):
+                items = [items]
+            self.items = [self.item_type(dd) for dd in items]
         super(NetflixCollection, self).__init__(d)
         for lab in 'number_of_results', 'results_per_page', 'start_index':
             setattr(self, lab, int(getattr(self, lab)))
@@ -240,9 +246,29 @@ class Netflix(object):
 
         return id, OAuthToken.from_string(res)
 
+    def analyze_error(self, exc):
+        url = exc.url
+        error = exc.read()
+        try:
+            error = json.loads(error)
+            code = int(error['status']['status_code'])
+            message = error['status']['message']
+        except (KeyError, ValueError):
+            code = exc.code
+            message = error
+        if code == 401 and  message == "Access Token Validation Failed":
+            raise AuthError(url, message)
+        elif code == 404:
+            raise NotFound(url, message)
+        elif code == 400 and message == 'Missing Required Access Token':
+            raise MissingAccessTokenError(url, message)
 
-    def request(self, url, token=None, **args):
-        """`url` may be relative with regard to Netflix.
+
+        raise NetflixError(url, code, message)
+
+    def request(self, url, token=None, verb='get', **args):
+        """`url` may be relative with regard to Netflix. Verb is a
+        HTTP verb.
 
         """
         if not url.startswith('http://'):
@@ -255,20 +281,21 @@ class Netflix(object):
         oa_req.sign_request(self.signature_method,
                             self.consumer,
                             token)
+        verb = verb.lower()
+        def _do_it():
+            if verb == 'post':
+                return urllib2.urlopen(url, data=oa_req.to_postdata())
+            elif verb == 'get':
+                return urllib2.urlopen(oa_req.to_url())
+            else:
+                raise Exception("Unknown HTTP verb.")
         try:
-            req = urllib2.urlopen(oa_req.to_url())
+            req = _do_it()
         except urllib2.HTTPError, e:
             logging.debug("We got an http error: %s" % e)
             try:
                 time.sleep(1)
-                req = urllib2.urlopen(oa_req.to_url())
+                req = _do_it()
             except urllib2.HTTPError, e:
-                error = e.read()
-                try:
-                    error = json.loads(error)
-                    if error['status']['status_code'] == "401" and error['status']['message'] == "Access Token Validation Failed":
-                        raise AuthError(url)
-                except (KeyError, ValueError):
-                    pass
-                raise NotFound(url, error)
+                self.analyze_error(e)
         return json.load(req, object_hook=self.object_hook)
