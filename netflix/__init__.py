@@ -14,7 +14,13 @@ import logging
 
 logging.basicConfig(level=logging.DEBUG,)
 
-class NotFound(Exception):
+class NetflixError(Exception):
+    pass
+
+class NotFound(NetflixError):
+    pass
+
+class AuthError(NetflixError):
     pass
 
 class NetflixObject(object):
@@ -257,5 +263,12 @@ class Netflix(object):
                 time.sleep(1)
                 req = urllib2.urlopen(oa_req.to_url())
             except urllib2.HTTPError, e:
-                raise NotFound(url, e.read())
+                error = e.read()
+                try:
+                    error = json.loads(error)
+                    if error['status']['status_code'] == "401" and error['status']['message'] == "Access Token Validation Failed":
+                        raise AuthError(url)
+                except (KeyError, ValueError):
+                    pass
+                raise NotFound(url, error)
         return json.load(req, object_hook=self.object_hook)
