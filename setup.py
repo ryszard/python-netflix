@@ -1,14 +1,14 @@
 from setuptools import setup, find_packages
 import sys
 
-dependencies = ['oauth']
+dependencies = ['oauth', 'urllib3']
 
-if sys.version < 2.6:
+if sys.version < '2.6':
     dependencies.append('simplejson')
 
 setup(
     name = "netflix",
-    version = "0.2.2",
+    version = "0.2.3",
     description="A very simple Python client for the Netflix API",
     author="Ryszard Szopa",
     author_email="ryszard.szopa@gmail.com",

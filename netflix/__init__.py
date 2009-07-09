@@ -12,6 +12,8 @@ except ImportError:
     import simplejson as json
 import logging
 
+from interval import call_interval
+
 logging.basicConfig(level=logging.DEBUG,)
 
 class NetflixError(Exception):
@@ -21,6 +23,9 @@ class NotFound(NetflixError):
     pass
 
 class AuthError(NetflixError):
+    pass
+
+class InvalidSignature(NetflixError):
     pass
 
 class MissingAccessTokenError(NetflixError):
@@ -144,6 +149,8 @@ class NetflixAvailability(NetflixObject, Printable):
         except KeyError:
             self.available_until = None
 
+import urllib3
+
 class Netflix(object):
     protocol = "http://"
     host = 'api.netflix.com'
@@ -152,6 +159,7 @@ class Netflix(object):
     access_token_url  = 'http://api.netflix.com/oauth/access_token'
     authorization_url = 'https://api-user.netflix.com/oauth/login'
     signature_method = oauth.OAuthSignatureMethod_HMAC_SHA1()
+    http = urllib3.HTTPConnectionPool(host)
 
     def __init__(self, key, secret, application_name=None):
         self.consumer = oauth.OAuthConsumer(key, secret)
@@ -199,12 +207,13 @@ class Netflix(object):
         oa_req.sign_request(self.signature_method,
                                   self.consumer,
                                   None)
-        req = urllib2.Request(
-            self.request_token_url,
-            headers = oa_req.to_header())
-        request_token = OAuthToken.from_string(urllib2.urlopen(req).read())
-        return request_token
-
+        res = self.http.get_url(self.request_token_url, headers = oa_req.to_header())
+#         req = urllib2.Request(
+#             self.request_token_url,
+#             headers = oa_req.to_header())
+#         request_token = OAuthToken.from_string(urllib2.urlopen(req).read())
+#        return request_token
+        return  OAuthToken.from_string(res.data)
     def get_authorization_url(self, callback=None):
         """Return the authorization url and token."""
         token = self.get_request_token()
@@ -235,38 +244,42 @@ class Netflix(object):
             self.consumer,
             token
         )
-        try:
-            req = urllib2.urlopen(oa_req.to_url())
-        except urllib2.HTTPError,e:
-            # todo: someting better here
-            raise
-        res = req.read()
+#         try:
+#             req = urllib2.urlopen(oa_req.to_url())
+#         except urllib2.HTTPError,e:
+#             # todo: someting better here
+#             raise
+        req = self.http.get_url(oa_req.to_url())
+        res = req.data
         logging.debug(res)
         id = cgi.parse_qs(res)['user_id'][0]
 
         return id, OAuthToken.from_string(res)
 
     def analyze_error(self, exc):
-        url = exc.url
-        error = exc.read()
+        error = exc.data
         try:
             error = json.loads(error)
             code = int(error['status']['status_code'])
             message = error['status']['message']
         except (KeyError, ValueError):
-            code = exc.code
+            code = exc.status
             message = error
-        if code == 401 and  message == "Access Token Validation Failed":
-            raise AuthError(url, message)
+        if code == 401:
+            if message == "Access Token Validation Failed":
+                raise AuthError(message)
+            elif message == 'Invalid Signature':
+                raise InvalidSignature(message)
         elif code == 404:
-            raise NotFound(url, message)
+            raise NotFound(message)
         elif code == 400 and message == 'Missing Required Access Token':
-            raise MissingAccessTokenError(url, message)
+            raise MissingAccessTokenError(message)
 
 
-        raise NetflixError(url, code, message)
+        raise NetflixError(code, message)
 
-    def request(self, url, token=None, verb='get', **args):
+    @call_interval(0.2)
+    def request(self, url, token=None, verb='GET', **args):
         """`url` may be relative with regard to Netflix. Verb is a
         HTTP verb.
 
@@ -275,27 +288,34 @@ class Netflix(object):
             url = self.protocol + self.host + url
         args['output'] = 'json'
         oa_req = OAuthRequest.from_consumer_and_token(self.consumer,
-                                                            http_url=url,
-                                                            parameters=args,
-                                                            token=token)
+                                                      http_url=url,
+                                                      parameters=args,
+                                                      token=token)
         oa_req.sign_request(self.signature_method,
                             self.consumer,
                             token)
-        verb = verb.lower()
-        def _do_it():
-            if verb == 'post':
-                return urllib2.urlopen(url, data=oa_req.to_postdata())
-            elif verb == 'get':
-                return urllib2.urlopen(oa_req.to_url())
+        verb = verb.upper()
+#             if verb == 'post':
+#                 #return urllib2.urlopen(url, data=oa_req.to_postdata())
+#                 return urllib2.urlopen(oa_req.to_url(), ' ')
+#             elif verb == 'get':
+#                 return urllib2.urlopen(oa_req.to_url())
+#             else:
+#                 raise Exception("Unknown HTTP verb.")
+
+        def _do():
+            if verb == "POST":
+                req = self.http.urlopen('POST', oa_req.to_url(), headers={"Content-Length": "0"})
+
             else:
-                raise Exception("Unknown HTTP verb.")
-        try:
-            req = _do_it()
-        except urllib2.HTTPError, e:
-            logging.debug("We got an http error: %s" % e)
-            try:
+                req = self.http.urlopen(verb, oa_req.to_url())
+            return req
+        for i in xrange(3):
+            req = _do()
+            if str(req.status).startswith('2'):
+                break
+            else:
                 time.sleep(1)
-                req = _do_it()
-            except urllib2.HTTPError, e:
-                self.analyze_error(e)
-        return json.load(req, object_hook=self.object_hook)
+        if not str(req.status).startswith('2'):
+            self.analyze_error(req)
+        return json.loads(req.data, object_hook=self.object_hook)
