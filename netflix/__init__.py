@@ -31,6 +31,9 @@ class InvalidSignature(NetflixError):
 class MissingAccessTokenError(NetflixError):
     pass
 
+class TitleAlreadyInQueue(NetflixError):
+    pass
+
 class NetflixObject(object):
     def get(self, netflix=None, token=None, key=None, secret=None):
         if not netflix:
@@ -274,6 +277,8 @@ class Netflix(object):
             raise NotFound(message)
         elif code == 400 and message == 'Missing Required Access Token':
             raise MissingAccessTokenError(message)
+        elif code == 412 and message == 'Title is already in queue':
+            raise TitleAlreadyInQueue()
 
 
         raise NetflixError(code, message)
@@ -287,6 +292,8 @@ class Netflix(object):
         if not url.startswith('http://'):
             url = self.protocol + self.host + url
         args['output'] = 'json'
+        args['method'] = verb.upper()
+
         oa_req = OAuthRequest.from_consumer_and_token(self.consumer,
                                                       http_url=url,
                                                       parameters=args,
@@ -294,22 +301,9 @@ class Netflix(object):
         oa_req.sign_request(self.signature_method,
                             self.consumer,
                             token)
-        verb = verb.upper()
-#             if verb == 'post':
-#                 #return urllib2.urlopen(url, data=oa_req.to_postdata())
-#                 return urllib2.urlopen(oa_req.to_url(), ' ')
-#             elif verb == 'get':
-#                 return urllib2.urlopen(oa_req.to_url())
-#             else:
-#                 raise Exception("Unknown HTTP verb.")
-
         def _do():
-            if verb == "POST":
-                req = self.http.urlopen('POST', oa_req.to_url(), headers={"Content-Length": "0"})
+            return self.http.urlopen('GET', oa_req.to_url())
 
-            else:
-                req = self.http.urlopen(verb, oa_req.to_url())
-            return req
         for i in xrange(3):
             req = _do()
             if str(req.status).startswith('2'):
