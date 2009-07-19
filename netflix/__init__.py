@@ -6,6 +6,7 @@ import cgi
 import time
 from datetime import datetime
 from urllib import urlencode, quote
+import urllib3
 try:
     import json
 except ImportError:
@@ -40,47 +41,29 @@ class NetflixObject(object):
             netflix = Netflix(key=key, secret=secret)
         return netflix.request(self, token=token)
 
-class Printable(object):
-    def __str__(self):
-        return self._imp
+class NetflixLink(NetflixObject, str):
 
-    @property
-    def _imp(self):
-        important = getattr(self, 'important')
-        try:
-            return getattr(self, important)
-        except TypeError:
-            return getattr(self, important[0])
+    def __new__(self, href, *a, **kw):
+        return str.__new__(self, href)
 
-    def __repr__(self):
-        if isinstance(self.important, (tuple, list)):
-            data =  ', '.join("%r" % getattr(self, k) for k in self.important)
-        else:
-            data = "%r" % getattr(self, self.important)
-
-        return "<%s %s>" % (type(self).__name__, data)
-
-    def __getattr__(self, name):
-        return getattr(self._imp, name)
-
-    def __getitem__(self, key):
-        return self._imp.__getitem__(key)
-
-    def __add__(self, other):
-        return self._imp + other
-
-    def __radd__(self, other):
-        return self + other
-
-class NetflixLink(NetflixObject, Printable):
-    important = 'href'
     def __init__(self, href=None, rel=None, title=None):
         self.href, self.rel, self.title = href, rel, title
 
-class NetflixCategory(NetflixObject, Printable):
-    important = 'term'
+    def __repr__(self):
+        return "<%s %s>" % (type(self).__name__, self.href)
+
+class NetflixCategory(NetflixObject):
     def __init__(self, label=None, scheme=None, term=None, content=None):
         self.label, self.scheme, self.term, self.content = label, scheme, term, content
+
+    def __repr__(self):
+        return "<%s %s>" % (type(self).__name__, self.term)
+
+    def __str__(self):
+        return self.term
+
+    def __unicode__(self):
+        return self.term
 
 class FancyObject(NetflixObject):
     def __init__(self, d):
@@ -88,11 +71,8 @@ class FancyObject(NetflixObject):
         for k in d:
             setattr(self, k, d[k])
 
-
-class CatalogTitle(FancyObject, Printable):
-    important = ('title', 'id')
+class CatalogTitle(FancyObject):
     def __init__(self, d):
-#        assert isinstance(d, dict), (type(d), d)
         title = d.pop('title')
         self.title = title['regular']
         self.title_short = title['short']
@@ -100,8 +80,20 @@ class CatalogTitle(FancyObject, Printable):
         self.categories = [NetflixCategory(**di) for di in categories]
         super(CatalogTitle, self).__init__(d)
 
-class NetflixUser(FancyObject, Printable):
-    important = ('last_name', 'first_name', 'user_id')
+
+    def __repr__(self):
+        return "<%s %s %s>" % (type(self).__name__, self.title, self.id)
+
+    def __unicode__(self):
+        return self.title
+
+    def __str__(self):
+        return self.title
+
+    def __eq__(self, other):
+        return self.id == other.id
+
+class NetflixUser(FancyObject):
 
     def __init__(self, d):
         preferred_formats = d.pop('preferred_formats')
@@ -109,6 +101,15 @@ class NetflixUser(FancyObject, Printable):
             preferred_formats = [preferred_formats]
         self.preferred_formats = [NetflixCategory(**dd['category']) for dd in preferred_formats]
         super(NetflixUser, self).__init__(d)
+
+    def __repr__(self):
+        return "<%s %s %s>" % (type(self).__name__, self.last_name, self.user_id)
+
+    def __unicode__(self):
+        return "%s %s" % (self.first_name, self.last_name)
+
+    def __str__(self):
+        return unicode(self)
 
 class NetflixCollection(FancyObject):
     item_type = CatalogTitle
@@ -127,6 +128,9 @@ class NetflixCollection(FancyObject):
         for lab in 'number_of_results', 'results_per_page', 'start_index':
             setattr(self, lab, int(getattr(self, lab)))
 
+    def __contains__(self, item):
+        return item in self.items
+
     def __iter__(self):
         for item in self.items:
             yield item
@@ -138,8 +142,18 @@ class RentalHistory(NetflixCollection):
 class NetflixQueue(NetflixCollection):
     _items_name = 'queue_item'
 
-class NetflixAvailability(NetflixObject, Printable):
-    important = ('category', 'available_from')
+    def __contains__(self, item):
+        if isinstance(item, self.item_type):
+            return super(NetflixQueue, self).__contains__(item)
+        elif isinstance(item, basestring):
+            return item in [i.links[i.title].href for i in self]
+        try:
+            return item.netflix_id in self
+        except AttributeError:
+            pass
+        return False
+
+class NetflixAvailability(NetflixObject):
     def __init__(self, d):
         self.category = NetflixCategory(**d['category'])
         try:
@@ -152,7 +166,14 @@ class NetflixAvailability(NetflixObject, Printable):
         except KeyError:
             self.available_until = None
 
-import urllib3
+    def __repr__(self):
+        return "<%s %s>" % (type(self).__name__, self.category)
+
+    def __str__(self):
+        return self.category
+
+    def __getattr__(self, name):
+        return getattr(self.category, name)
 
 class Netflix(object):
     protocol = "http://"
@@ -211,12 +232,8 @@ class Netflix(object):
                                   self.consumer,
                                   None)
         res = self.http.get_url(self.request_token_url, headers = oa_req.to_header())
-#         req = urllib2.Request(
-#             self.request_token_url,
-#             headers = oa_req.to_header())
-#         request_token = OAuthToken.from_string(urllib2.urlopen(req).read())
-#        return request_token
         return  OAuthToken.from_string(res.data)
+
     def get_authorization_url(self, callback=None):
         """Return the authorization url and token."""
         token = self.get_request_token()
@@ -247,11 +264,6 @@ class Netflix(object):
             self.consumer,
             token
         )
-#         try:
-#             req = urllib2.urlopen(oa_req.to_url())
-#         except urllib2.HTTPError,e:
-#             # todo: someting better here
-#             raise
         req = self.http.get_url(oa_req.to_url())
         res = req.data
         logging.debug(res)
@@ -301,15 +313,8 @@ class Netflix(object):
         oa_req.sign_request(self.signature_method,
                             self.consumer,
                             token)
-        def _do():
-            return self.http.urlopen('GET', oa_req.to_url())
 
-        for i in xrange(3):
-            req = _do()
-            if str(req.status).startswith('2'):
-                break
-            else:
-                time.sleep(1)
+        req = self.http.urlopen('GET', oa_req.to_url())
         if not str(req.status).startswith('2'):
             self.analyze_error(req)
         return json.loads(req.data, object_hook=self.object_hook)
