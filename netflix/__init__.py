@@ -37,14 +37,13 @@ class TitleAlreadyInQueue(NetflixError):
 
 class NetflixObject(object):
     def get(self, netflix=None, token=None, key=None, secret=None):
-        if not netflix:
-            netflix = Netflix(key=key, secret=secret)
+        netflix = netflix or getattr(self, 'netflix', None) or Netflix(key=key, secret=secret)
         return netflix.request(self, token=token)
 
-class NetflixLink(NetflixObject, str):
+class NetflixLink(NetflixObject, unicode):
 
     def __new__(self, href, *a, **kw):
-        return str.__new__(self, href)
+        return unicode.__new__(self, href)
 
     def __init__(self, href=None, rel=None, title=None):
         self.href, self.rel, self.title = href, rel, title
@@ -52,26 +51,55 @@ class NetflixLink(NetflixObject, str):
     def __repr__(self):
         return "<%s %s>" % (type(self).__name__, self.href)
 
-class NetflixCategory(NetflixObject):
+class NetflixCategory(NetflixObject, unicode):
+
+    def __new__(self, label=None, scheme=None, term=None, content=None):
+        return unicode.__new__(self, term)
+
     def __init__(self, label=None, scheme=None, term=None, content=None):
+        logging.debug("%s", (label, scheme, term, content))
         self.label, self.scheme, self.term, self.content = label, scheme, term, content
 
     def __repr__(self):
-        return "<%s %s>" % (type(self).__name__, self.term)
-
-    def __str__(self):
-        return self.term
+        return "<%s %s>" % (type(self).__name__, self)
 
     def __unicode__(self):
         return self.term
+
+class NetflixAvailability(NetflixCategory):
+
+    def __new__(self, d):
+        return unicode.__new__(self, d['category']['term'])
+
+    def __init__(self, d):
+        cat = d['category']
+
+        super(NetflixAvailability, self).__init__(**cat)
+        try:
+            self.available_from = datetime.fromtimestamp(float(d['available_from']))
+            self.available = False
+        except KeyError:
+            self.available_from = None
+        try:
+            self.available_until = datetime.fromtimestamp(float(d['available_until']))
+        except KeyError:
+            self.available_until = None
+
+    def __repr__(self):
+        return "<%s %s>" % (type(self).__name__, self)
 
 class FancyObject(NetflixObject):
     def __init__(self, d):
         self.links = dict((di['title'], NetflixLink(**di)) for di in d.pop('link'))
         for k in d:
             setattr(self, k, d[k])
+        super(FancyObject, self).__init__()
 
 class CatalogTitle(FancyObject):
+
+#     def __new__(self, d):
+#         return str.__new__(d['id'])
+
     def __init__(self, d):
         title = d.pop('title')
         self.title = title['regular']
@@ -90,11 +118,11 @@ class CatalogTitle(FancyObject):
     def __str__(self):
         return self.title
 
-    def __getattr__(self, name):
-        return getattr(self.id, name)
+#     def __getattr__(self, name):
+#         return getattr(self.id, name)
 
-    def __getitem__(self, key):
-        return self.id[key]
+#     def __getitem__(self, key):
+#         return self.id[key]
 
     def __eq__(self, other):
         return self.id == other.id
@@ -158,28 +186,6 @@ class NetflixQueue(NetflixCollection):
         except AttributeError:
             pass
         return False
-
-class NetflixAvailability(NetflixObject):
-    def __init__(self, d):
-        self.category = NetflixCategory(**d['category'])
-        try:
-            self.available_from = datetime.fromtimestamp(float(d['available_from']))
-            self.available = False
-        except KeyError:
-            self.available_from = None
-        try:
-            self.available_until = datetime.fromtimestamp(float(d['available_until']))
-        except KeyError:
-            self.available_until = None
-
-    def __repr__(self):
-        return "<%s %s>" % (type(self).__name__, self.category)
-
-    def __str__(self):
-        return self.category
-
-    def __getattr__(self, name):
-        return getattr(self.category, name)
 
 class Netflix(object):
     protocol = "http://"
@@ -307,6 +313,8 @@ class Netflix(object):
         HTTP verb.
 
         """
+        if isinstance(url, NetflixObject) and not isinstance(url, basestring):
+            url = url.id
         if not url.startswith('http://'):
             url = self.protocol + self.host + url
         args['output'] = 'json'
@@ -323,4 +331,5 @@ class Netflix(object):
         req = self.http.urlopen('GET', oa_req.to_url())
         if not str(req.status).startswith('2'):
             self.analyze_error(req)
-        return json.loads(req.data, object_hook=self.object_hook)
+        o = json.loads(req.data, object_hook=self.object_hook)
+        return o
