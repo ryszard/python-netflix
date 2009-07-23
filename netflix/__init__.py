@@ -57,7 +57,6 @@ class NetflixCategory(NetflixObject, unicode):
         return unicode.__new__(self, term)
 
     def __init__(self, label=None, scheme=None, term=None, content=None):
-        logging.debug("%s", (label, scheme, term, content))
         self.label, self.scheme, self.term, self.content = label, scheme, term, content
 
     def __repr__(self):
