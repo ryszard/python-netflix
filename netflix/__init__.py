@@ -90,6 +90,12 @@ class CatalogTitle(FancyObject):
     def __str__(self):
         return self.title
 
+    def __getattr__(self, name):
+        return getattr(self.id, name)
+
+    def __getitem__(self, key):
+        return self.id[key]
+
     def __eq__(self, other):
         return self.id == other.id
 
