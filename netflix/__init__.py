@@ -89,15 +89,15 @@ class NetflixAvailability(NetflixCategory):
 
 class FancyObject(NetflixObject):
     def __init__(self, d):
-        self.links = dict((di['title'], NetflixLink(**di)) for di in d.pop('link'))
+        try:
+            self.links = dict((di['title'], NetflixLink(**di)) for di in d.pop('link'))
+        except KeyError:
+            pass
         for k in d:
             setattr(self, k, d[k])
         super(FancyObject, self).__init__()
 
 class CatalogTitle(FancyObject):
-
-#     def __new__(self, d):
-#         return str.__new__(d['id'])
 
     def __init__(self, d):
         title = d.pop('title')
@@ -105,8 +105,25 @@ class CatalogTitle(FancyObject):
         self.title_short = title['short']
         categories = d.pop('category')
         self.categories = [NetflixCategory(**di) for di in categories]
+
+        for label in 'estimated_arrival_date', 'shipped_date':
+            try:
+                setattr(self, label, datetime.fromtimestamp(float(d.pop(label))))
+            except KeyError:
+                pass
+        try:
+            self.average_rating = float(d.pop('average_rating'))
+        except KeyError:
+            pass
+
         super(CatalogTitle, self).__init__(d)
 
+    @property
+    def netflix_id(self):
+        try:
+            return self.links[self.title].href
+        except KeyError:
+            return self.id
 
     def __repr__(self):
         return "<%s %s %s>" % (type(self).__name__, self.title, self.id)
@@ -117,14 +134,14 @@ class CatalogTitle(FancyObject):
     def __str__(self):
         return self.title
 
-#     def __getattr__(self, name):
-#         return getattr(self.id, name)
-
-#     def __getitem__(self, key):
-#         return self.id[key]
-
     def __eq__(self, other):
-        return self.id == other.id
+        try:
+            return self.netflix_id == other.netflix_id
+        except AttributeError:
+            try:
+                return self.netflix_id == other.id
+            except AttributeError:
+                return False
 
 class NetflixUser(FancyObject):
 
@@ -162,7 +179,18 @@ class NetflixCollection(FancyObject):
             setattr(self, lab, int(getattr(self, lab)))
 
     def __contains__(self, item):
-        return item in self.items
+        if isinstance(item, self.item_type):
+            return item in self.items
+        elif isinstance(item, basestring):
+            return item in [i.netflix_id for i in self]
+        try:
+            return item.netflix_id in self
+        except AttributeError:
+            pass
+        return False
+
+    def __getitem__(self, key):
+        return self.items[key]
 
     def __iter__(self):
         for item in self.items:
@@ -175,16 +203,20 @@ class RentalHistory(NetflixCollection):
 class NetflixQueue(NetflixCollection):
     _items_name = 'queue_item'
 
-    def __contains__(self, item):
-        if isinstance(item, self.item_type):
-            return super(NetflixQueue, self).__contains__(item)
-        elif isinstance(item, basestring):
-            return item in [i.links[i.title].href for i in self]
-        try:
-            return item.netflix_id in self
-        except AttributeError:
-            pass
-        return False
+class NetflixAtHome(NetflixCollection):
+    _items_name = 'at_home_item'
+
+    def get_title(self, key):
+        if isinstance(key, basestring):
+            for item in self:
+                if item.netflix_id == key:
+                    return item
+        elif isinstance(key, self.item_type):
+            for item in self:
+                if item == key:
+                    return item
+
+
 
 class Netflix(object):
     protocol = "http://"
@@ -230,6 +262,8 @@ class Netflix(object):
             return NetflixUser(d['user'])
         elif isa('rental_history'):
             return RentalHistory(d['rental_history'])
+        elif isa('at_home'):
+            return NetflixAtHome(d['at_home'])
         elif isa('queue'):
             return NetflixQueue(d['queue'])
         else:
