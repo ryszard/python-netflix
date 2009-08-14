@@ -35,7 +35,13 @@ class MissingAccessTokenError(NetflixError):
 class TitleAlreadyInQueue(NetflixError):
     pass
 
-class TooManyRequestsPerSecondError(NetflixError):
+class TooManyRequestsError(NetflixError):
+    pass
+
+class TooManyRequestsPerSecondError(TooManyRequestsError):
+    pass
+
+class TooManyRequestsPerDayError(TooManyRequestsError):
     pass
 
 class NetflixObject(object):
@@ -279,8 +285,10 @@ class Netflix(object):
         oa_req.sign_request(self.signature_method,
                                   self.consumer,
                                   None)
-        res = self.http.get_url(self.request_token_url, headers = oa_req.to_header())
-        return  OAuthToken.from_string(res.data)
+        req = self.http.get_url(self.request_token_url, headers = oa_req.to_header())
+        if not str(req.status).startswith('2'):
+            self.analyze_error(req)
+        return OAuthToken.from_string(req.data)
 
     def get_authorization_url(self, callback=None):
         """Return the authorization url and token."""
@@ -313,6 +321,8 @@ class Netflix(object):
             token
         )
         req = self.http.get_url(oa_req.to_url())
+        if not str(req.status).startswith('2'):
+                self.analyze_error(req)
         res = req.data
         logging.debug(res)
         id = cgi.parse_qs(res)['user_id'][0]
@@ -333,9 +343,11 @@ class Netflix(object):
                 raise AuthError(message)
             elif message == 'Invalid Signature':
                 raise InvalidSignature(message)
-        elif code == 403 and \
-                'Service is over queries per second limit' in message:
-                raise TooManyRequestsPerSecondError()
+        elif code == 403:
+                if 'Service is over queries per second limit' in message:
+                    raise TooManyRequestsPerSecondError()
+                elif 'Over queries per day limit' in message:
+                    raise TooManyRequestsPerDayError()
         elif code == 404:
             raise NotFound(message)
         elif code == 400 and message == 'Missing Required Access Token':
