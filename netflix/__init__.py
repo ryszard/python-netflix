@@ -35,6 +35,9 @@ class MissingAccessTokenError(NetflixError):
 class TitleAlreadyInQueue(NetflixError):
     pass
 
+class TooManyRequestsPerSecondError(NetflixError):
+    pass
+
 class NetflixObject(object):
     def get(self, netflix=None, token=None, key=None, secret=None):
         netflix = netflix or getattr(self, 'netflix', None) or Netflix(key=key, secret=secret)
@@ -330,6 +333,9 @@ class Netflix(object):
                 raise AuthError(message)
             elif message == 'Invalid Signature':
                 raise InvalidSignature(message)
+        elif code == 403 and \
+                'Service is over queries per second limit' in message:
+                raise TooManyRequestsPerSecondError()
         elif code == 404:
             raise NotFound(message)
         elif code == 400 and message == 'Missing Required Access Token':
@@ -340,7 +346,7 @@ class Netflix(object):
 
         raise NetflixError(code, message)
 
-    @call_interval(0.2)
+    @call_interval(0.25)
     def request(self, url, token=None, verb='GET', **args):
         """`url` may be relative with regard to Netflix. Verb is a
         HTTP verb.
@@ -360,9 +366,15 @@ class Netflix(object):
         oa_req.sign_request(self.signature_method,
                             self.consumer,
                             token)
-
-        req = self.http.urlopen('GET', oa_req.to_url())
-        if not str(req.status).startswith('2'):
-            self.analyze_error(req)
+        def do_request():
+            req = self.http.urlopen('GET', oa_req.to_url())
+            if not str(req.status).startswith('2'):
+                self.analyze_error(req)
+            return req
+        try:
+            req = do_request()
+        except TooManyRequestsPerSecondError:
+            time.sleep(1)
+            req = do_request()
         o = json.loads(req.data, object_hook=self.object_hook)
         return o
