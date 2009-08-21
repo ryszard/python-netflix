@@ -15,8 +15,6 @@ import logging
 
 from interval import call_interval
 
-logging.basicConfig(level=logging.DEBUG,)
-
 class NetflixError(Exception):
     pass
 
