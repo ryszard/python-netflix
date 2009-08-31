@@ -42,6 +42,9 @@ class TooManyRequestsPerSecondError(TooManyRequestsError):
 class TooManyRequestsPerDayError(TooManyRequestsError):
     pass
 
+class InvalidOrExpiredToken(AuthError):
+    pass
+
 class NetflixObject(object):
     def get(self, netflix=None, token=None, key=None, secret=None):
         netflix = netflix or getattr(self, 'netflix', None) or Netflix(key=key, secret=secret)
@@ -341,6 +344,8 @@ class Netflix(object):
                 raise AuthError(message)
             elif message == 'Invalid Signature':
                 raise InvalidSignature(message)
+            elif message == 'Invalid Or Expired Token':
+                raise InvalidOrExpiredToken(message)
         elif code == 403:
                 if 'Service is over queries per second limit' in message:
                     raise TooManyRequestsPerSecondError()
