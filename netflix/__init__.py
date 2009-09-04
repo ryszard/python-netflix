@@ -60,8 +60,9 @@ import urllib2
 import cgi
 import time
 from datetime import datetime
-from urllib import urlencode, quote
+from urllib import urlencode, quote, urlretrieve
 import urllib3
+import sys
 try:
     import json
 except ImportError:
@@ -136,7 +137,10 @@ class NetflixCategory(NetflixObject, unicode):
 class NetflixAvailability(NetflixCategory):
 
     def __new__(self, d):
-        return unicode.__new__(self, d['category']['term'])
+        try:
+            return unicode.__new__(self, d['category']['term'])
+        except TypeError:
+            return unicode.__new__(self, d)
 
     def __init__(self, d):
         cat = d['category']
@@ -422,7 +426,7 @@ class Netflix(object):
         raise NetflixError(code, message)
 
     @call_interval(0.25)
-    def request(self, url, token=None, verb='GET', **args):
+    def request(self, url, token=None, verb='GET', filename=None, **args):
         """`url` may be relative with regard to Netflix. Verb is a
         HTTP verb.
 
@@ -431,7 +435,8 @@ class Netflix(object):
             url = url.id
         if not url.startswith('http://'):
             url = self.protocol + self.host + url
-        args['output'] = 'json'
+        if 'output' not in args:
+            args['output'] = 'json'
         args['method'] = verb.upper()
 
         oa_req = OAuthRequest.from_consumer_and_token(self.consumer,
@@ -441,15 +446,25 @@ class Netflix(object):
         oa_req.sign_request(self.signature_method,
                             self.consumer,
                             token)
-        def do_request():
-            req = self.http.urlopen('GET', oa_req.to_url())
-            if not str(req.status).startswith('2'):
-                self.analyze_error(req)
-            return req
+        if filename is None:
+            def do_request():
+                req = self.http.urlopen('GET', oa_req.to_url())
+                if not str(req.status).startswith('2'):
+                    self.analyze_error(req)
+                return req
+        else:
+            def do_request():
+                urlretrieve(oa_req.to_url(), filename)
+                sys.stderr.write('\nSaved to: %s\n' % filename)
         try:
             req = do_request()
         except TooManyRequestsPerSecondError:
             time.sleep(1)
             req = do_request()
+        if filename:
+            return
         o = json.loads(req.data, object_hook=self.object_hook)
         return o
+
+    def index(self, filename):
+        self.request('/catalog/titles/index', output='xml', filename=filename)
