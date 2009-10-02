@@ -122,7 +122,11 @@ class NetflixLink(NetflixObject, unicode):
 
 class NetflixCategory(NetflixObject, unicode):
 
-    def __new__(self, label=None, scheme=None, term=None, content=None):
+    def __new__(self, term=None, scheme=None, label=None, content=None):
+        # Argument order IS important: when a category gets unpickled
+        # it will get only the first argument (we inherit from
+        # unicode). A real fix would make use of __getnewargs__ (see
+        # http://docs.python.org/library/pickle.html#object.__getnewargs__).
         return unicode.__new__(self, term)
 
     def __init__(self, label=None, scheme=None, term=None, content=None):
@@ -132,7 +136,7 @@ class NetflixCategory(NetflixObject, unicode):
         return "<%s %s>" % (type(self).__name__, self)
 
     def __unicode__(self):
-        return self.term
+        return self
 
 class NetflixAvailability(NetflixCategory):
 
