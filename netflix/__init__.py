@@ -129,7 +129,13 @@ class NetflixCategory(NetflixObject, unicode):
         # http://docs.python.org/library/pickle.html#object.__getnewargs__).
         return unicode.__new__(self, term)
 
-    def __init__(self, label=None, scheme=None, term=None, content=None):
+    def __reduce_ex__(self, protocol): # pyflakes:ignore
+        return NetflixCategory, (self.term, self.scheme, self.label, self.content)
+
+    def __getnewargs__(self):
+        return self.term, self.scheme, self.label, self.content
+
+    def __init__(self, term=None, scheme=None, label=None, content=None):
         self.label, self.scheme, self.term, self.content = label, scheme, term, content
 
     def __repr__(self):
