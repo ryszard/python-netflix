@@ -226,12 +226,16 @@ class CatalogTitle(FancyObject):
                 return False
 
 class NetflixUser(FancyObject):
-
     def __init__(self, d):
-        preferred_formats = d.pop('preferred_formats')
-        if not isinstance(preferred_formats, (list, tuple)):
-            preferred_formats = [preferred_formats]
-        self.preferred_formats = [NetflixCategory(**dd['category']) for dd in preferred_formats]
+        def get_me_a_list_dammit(something):
+            if not isinstance(something, (list, tuple)):
+                return [something]
+            return list(something)
+        
+        self.preferred_formats = []
+        for pf in get_me_a_list_dammit(d.pop('preferred_formats')):
+            for category in get_me_a_list_dammit(pf['category']):
+                self.preferred_formats.append(NetflixCategory(**category))
         super(NetflixUser, self).__init__(d)
 
     def __repr__(self):
@@ -464,6 +468,7 @@ class Netflix(object):
                 return req
         else:
             def do_request():
+                raise Exception(oa_req.to_url())
                 urlretrieve(oa_req.to_url(), filename)
                 sys.stderr.write('\nSaved to: %s\n' % filename)
         try:
@@ -478,3 +483,6 @@ class Netflix(object):
 
     def index(self, filename):
         self.request('/catalog/titles/index', output='xml', filename=filename)
+
+    def full(self, filename):
+        self.request('/catalog/titles/full', output='xml', v='1.5', filename=filename)
