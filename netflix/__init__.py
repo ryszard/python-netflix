@@ -468,7 +468,6 @@ class Netflix(object):
                 return req
         else:
             def do_request():
-                raise Exception(oa_req.to_url())
                 urlretrieve(oa_req.to_url(), filename)
                 sys.stderr.write('\nSaved to: %s\n' % filename)
         try:
