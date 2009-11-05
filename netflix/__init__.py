@@ -453,6 +453,13 @@ class Netflix(object):
             args['output'] = 'json'
         args['method'] = verb.upper()
 
+        # we don't want unicode in the parameters
+        for k,v in args.iteritems():
+            try:
+                args[k] = v.encode('utf-8')
+            except AttributeError:
+                pass
+
         oa_req = OAuthRequest.from_consumer_and_token(self.consumer,
                                                       http_url=url,
                                                       parameters=args,
