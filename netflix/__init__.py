@@ -71,6 +71,11 @@ import logging
 
 from interval import call_interval
 
+def get_me_a_list_dammit(something):
+    if not isinstance(something, (list, tuple)):
+        return [something]
+    return list(something)
+
 class NetflixError(Exception):
     pass
 
@@ -186,7 +191,7 @@ class CatalogTitle(FancyObject):
         self.title = title['regular']
         self.title_short = title['short']
         categories = d.pop('category')
-        self.categories = [NetflixCategory(**di) for di in categories]
+        self.categories = [NetflixCategory(**di) for di in get_me_a_list_dammit(categories)]
 
         for label in 'estimated_arrival_date', 'shipped_date':
             try:
@@ -226,12 +231,7 @@ class CatalogTitle(FancyObject):
                 return False
 
 class NetflixUser(FancyObject):
-    def __init__(self, d):
-        def get_me_a_list_dammit(something):
-            if not isinstance(something, (list, tuple)):
-                return [something]
-            return list(something)
-        
+    def __init__(self, d):        
         self.preferred_formats = []
         for pf in get_me_a_list_dammit(d.pop('preferred_formats')):
             for category in get_me_a_list_dammit(pf['category']):
