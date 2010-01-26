@@ -60,9 +60,10 @@ import urllib2
 import cgi
 import time
 from datetime import datetime
-from urllib import urlencode, quote, urlretrieve
+from urllib import urlencode, quote
 import urllib3
 import sys
+import subprocess
 try:
     import json
 except ImportError:
@@ -475,7 +476,10 @@ class Netflix(object):
                 return req
         else:
             def do_request():
-                urlretrieve(oa_req.to_url(), filename)
+                subprocess.check_call(["curl", oa_req.to_url(),
+                                       "--location",
+                                       "--compressed",
+                                       "--output", filename])
                 sys.stderr.write('\nSaved to: %s\n' % filename)
         try:
             req = do_request()
