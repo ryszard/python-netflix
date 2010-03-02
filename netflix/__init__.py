@@ -476,11 +476,14 @@ class Netflix(object):
                 return req
         else:
             def do_request():
-                subprocess.check_call(["curl", oa_req.to_url(),
-                                       "--location",
-                                       "--compressed",
-                                       "--output", filename])
-                sys.stderr.write('\nSaved to: %s\n' % filename)
+                try:
+                    subprocess.check_call(["curl", oa_req.to_url(),
+                                           "--location",
+                                           "--compressed",
+                                           "--output", filename])
+                    sys.stderr.write('\nSaved to: %s\n' % filename)
+                except OSError:
+                    raise RuntimeError, "You need to have curl installed to use this command"
         try:
             req = do_request()
         except TooManyRequestsPerSecondError:
