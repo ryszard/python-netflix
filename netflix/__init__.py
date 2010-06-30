@@ -234,7 +234,11 @@ class CatalogTitle(FancyObject):
 class NetflixUser(FancyObject):
     def __init__(self, d):        
         self.preferred_formats = []
-        for pf in get_me_a_list_dammit(d.pop('preferred_formats')):
+        try:
+            preferred_formats = d.pop('preferred_formats')
+        except KeyError:
+            preferred_formats = d.pop('preferred_format', [])
+        for pf in get_me_a_list_dammit(preferred_formats):
             for category in get_me_a_list_dammit(pf['category']):
                 self.preferred_formats.append(NetflixCategory(**category))
         super(NetflixUser, self).__init__(d)
